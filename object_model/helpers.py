@@ -11,89 +11,45 @@ def thermal_image_to_array(image_path):
         img_array = np.array(img)
     return img_array
 
-
-def apply_fft_thermal_image(image: np.ndarray) -> tuple:
+def low_pass_filter_fft(image, cutoff):
     """
-    Applies a 2D Fast Fourier Transform (FFT) on a thermal image and returns both the shifted FFT
-    and its magnitude spectrum.
-
-    Parameters
-    ----------
-    image : numpy.ndarray
-        The input thermal image as a 2D array (grayscale).
-    Returns
-    -------
-    fshift : numpy.ndarray
-        The FFT of the image with zero frequency shifted to the center.
-    magnitude_spectrum : numpy.ndarray
-        The logarithmic magnitude spectrum of the FFT, which helps visualize the frequency content.
-
-    Example
-    -------
-    >>> import cv2
-    >>> image = cv2.imread('thermal_image.png', cv2.IMREAD_GRAYSCALE)
-    >>> fshift, magnitude_spectrum = apply_fft_thermal_image(image)
-    >>> plt.imshow(magnitude_spectrum, cmap='gray')
-    >>> plt.title('Magnitude Spectrum')
-    >>> plt.show()
-    """
-    # Compute the 2D FFT of the image
-    f = np.fft.fft2(image)
-    
-    # Shift the zero frequency component to the center
-    fshift = np.fft.fftshift(f)
-    
-    # Compute the magnitude spectrum (using a logarithmic scale for better visualization)
-    magnitude_spectrum = np.log(np.abs(fshift) + 1)
-    
-    return fshift, magnitude_spectrum
-
-def display_fft_image(image):
-    """
-    Compute and display the 2D FFT of a thermal image.
-
-    Parameters:
-    image (np.array): 2D numpy array representing the thermal image.
-    """
-    # Compute the 2D FFT of the image
-    fft2d = np.fft.fft2(image)
-    # Shift the zero frequency component to the center
-    fft2d_shifted = np.fft.fftshift(fft2d)
-    # Compute the magnitude spectrum with logarithmic scaling
-    magnitude_spectrum = np.log(1 + np.abs(fft2d_shifted))
-    
-    # Plot the magnitude spectrum
-    plt.figure(figsize=(8, 8))
-    plt.imshow(magnitude_spectrum, cmap='gray')
-    plt.title('2D FFT Magnitude Spectrum')
-    plt.axis('off')
-    plt.show()
-
-def extract_fft_features(image):
-    """
-    Compute the 2D FFT of an image and extract a feature vector from the magnitude spectrum.
+    Apply a low-pass filter to the image using FFT.
     
     Parameters:
-    image (np.array): Grayscale image as a 2D array.
-    
+    -----------
+    image : 2D numpy array
+        Input image (could be noisy).
+    cutoff : int or float
+        Radius of the circular low-pass filter (in pixels).
+        
     Returns:
-    features (np.array): A feature vector representing the image's frequency domain.
+    --------
+    filtered_image : 2D numpy array
+        The reconstructed image after filtering.
     """
-    # Compute the 2D FFT
-    fft2d = np.fft.fft2(image)
-    # Shift zero-frequency component to the center
-    fft2d_shifted = np.fft.fftshift(fft2d)
-    # Compute the magnitude spectrum and apply logarithmic scaling
-    magnitude_spectrum = np.log(1 + np.abs(fft2d_shifted))
+    # Compute the 2D FFT and shift the zero frequency component to the center
+    F = np.fft.fft2(image)
+    Fshift = np.fft.fftshift(F)
     
-    # Option 1: Flatten the entire magnitude spectrum (may be high-dimensional)
-    features = magnitude_spectrum.flatten()
+    # Create a circular low-pass filter mask
+    rows, cols = image.shape
+    crow, ccol = rows // 2, cols // 2
+    y, x = np.ogrid[:rows, :cols]
+    mask_area = (x - ccol)**2 + (y - crow)**2 <= cutoff**2
+    mask = np.zeros_like(image)
+    mask[mask_area] = 1
     
-    # Option 2: Alternatively, you can compute summary statistics or downsample the spectrum
-    # For example, by taking a central crop or resizing:
-    # features = cv2.resize(magnitude_spectrum, (32, 32)).flatten()
+    # Apply the mask to the shifted FFT
+    Fshift_filtered = Fshift * mask
     
-    return features
+    # Shift back (inverse shift) and compute the inverse FFT
+    F_ishift = np.fft.ifftshift(Fshift_filtered)
+    filtered_image = np.fft.ifft2(F_ishift)
+    filtered_image = np.abs(filtered_image)
+    
+    return filtered_image
+
+
 def display_thermal_data(image: np.ndarray, auto_scale: bool = True) -> None:
     """
     Displays thermal image data using a thermal colormap.
@@ -114,7 +70,7 @@ def display_thermal_data(image: np.ndarray, auto_scale: bool = True) -> None:
     else:
         vmin, vmax = 0, 65535
     
-    plt.imshow(image, cmap='inferno', vmin=vmin, vmax=vmax)
+    plt.imshow(image, cmap='gray', vmin=vmin, vmax=vmax)
     plt.title("Thermal Image Data")
     plt.xlabel("Pixel X")
     plt.ylabel("Pixel Y")
@@ -143,9 +99,143 @@ def get_exif_metadata(file_path: str) -> dict:
             metadata = {TAGS.get(tag, tag): value for tag, value in exif_data.items()}
     return metadata
 
+def radial_profile(data, center=None):
+    """
+    Compute the radial profile of a 2D array.
+    """
+    y, x = np.indices(data.shape)
+    if center is None:
+        center = np.array([(x.max() - x.min()) / 2.0, (y.max() - y.min()) / 2.0])
+    
+    # Compute distances from the center
+    r = np.sqrt((x - center[0])**2 + (y - center[1])**2)
+    r = r.flatten()
+    data = data.flatten()
+    
+    # Bin by integer value of the radius
+    r_int = r.astype(np.int32)
+    tbin = np.bincount(r_int, weights=data)
+    nr = np.bincount(r_int)
+    radialprofile = tbin / np.maximum(nr, 1)
+    return radialprofile
+
+def plot_fft_radial_profile(image):
+    # Compute FFT and shift it
+    F = np.fft.fft2(image)
+    Fshift = np.fft.fftshift(F)
+    magnitude_spectrum = np.abs(Fshift)
+    # Use logarithmic scale for better visualization
+    magnitude_log = np.log1p(magnitude_spectrum)
+    
+    # Compute the radial profile
+    profile = radial_profile(magnitude_log)
+    
+    plt.figure(figsize=(8, 5))
+    plt.plot(profile, 'b-', marker='o')
+    plt.xlabel('Radius (pixels)')
+    plt.ylabel('Average log magnitude')
+    plt.title('Radial Profile of FFT Magnitude Spectrum')
+    plt.grid(True)
+    plt.show()
+
+def low_pass_filter_fft(image, cutoff):
+    """
+    Apply a circular low-pass filter using FFT.
+    
+    Parameters:
+    -----------
+    image : 2D numpy array
+        Input image.
+    cutoff : int or float
+        Radius (in pixels) for the low-pass filter.
+        
+    Returns:
+    --------
+    filtered_image : 2D numpy array
+        Reconstructed image after low-pass filtering.
+    """
+    F = np.fft.fft2(image)
+    Fshift = np.fft.fftshift(F)
+    rows, cols = image.shape
+    crow, ccol = rows // 2, cols // 2
+    y, x = np.ogrid[:rows, :cols]
+    mask = (x - ccol)**2 + (y - crow)**2 <= cutoff**2
+    Fshift_filtered = Fshift * mask
+    F_ishift = np.fft.ifftshift(Fshift_filtered)
+    filtered = np.fft.ifft2(F_ishift)
+    return np.abs(filtered)
+
+def high_pass_filter_fft(image, cutoff):
+    """
+    Apply a circular high-pass filter using FFT.
+    
+    Parameters:
+    -----------
+    image : 2D numpy array
+        Input image.
+    cutoff : int or float
+        Radius (in pixels) for the high-pass filter.
+        
+    Returns:
+    --------
+    filtered_image : 2D numpy array
+        Reconstructed image after high-pass filtering.
+    """
+    F = np.fft.fft2(image)
+    Fshift = np.fft.fftshift(F)
+    rows, cols = image.shape
+    crow, ccol = rows // 2, cols // 2
+    y, x = np.ogrid[:rows, :cols]
+    mask = (x - ccol)**2 + (y - crow)**2 > cutoff**2
+    Fshift_filtered = Fshift * mask
+    F_ishift = np.fft.ifftshift(Fshift_filtered)
+    filtered = np.fft.ifft2(F_ishift)
+    return np.abs(filtered)
+
+def band_pass_filter_fft(image, low_cutoff, high_cutoff):
+    """
+    Apply a circular band-pass filter using FFT.
+    
+    Parameters:
+    -----------
+    image : 2D numpy array
+        Input image.
+    low_cutoff : int or float
+        Lower radius (in pixels) for the band-pass filter.
+    high_cutoff : int or float
+        Upper radius (in pixels) for the band-pass filter.
+        
+    Returns:
+    --------
+    filtered_image : 2D numpy array
+        Reconstructed image after band-pass filtering.
+    """
+    F = np.fft.fft2(image)
+    Fshift = np.fft.fftshift(F)
+    rows, cols = image.shape
+    crow, ccol = rows // 2, cols // 2
+    y, x = np.ogrid[:rows, :cols]
+    mask = ((x - ccol)**2 + (y - crow)**2 >= low_cutoff**2) & ((x - ccol)**2 + (y - crow)**2 <= high_cutoff**2)
+    Fshift_filtered = Fshift * mask
+    F_ishift = np.fft.ifftshift(Fshift_filtered)
+    filtered = np.fft.ifft2(F_ishift)
+    return np.abs(filtered)
+
 # Example usage:
 if __name__ == "__main__":
-    # Load a thermal image
     file_path = "test_images_16_bit/image_2.tiff"
-    thermal_image = thermal_image_to_array(file_path)
-    display_thermal_data(thermal_image)
+    image = thermal_image_to_array(file_path)
+    if image is None:
+        raise ValueError("Image not found or path is incorrect.")
+
+    # Define a new range of cutoff values for the high pass filter
+
+    # Apply high pass filtering for each cutoff value
+    display_thermal_data(image)
+    filtered_image = high_pass_filter_fft(image, 6)
+    plt.figure(figsize=(8, 6))
+    plt.imshow(filtered_image, cmap='gray')
+    
+
+    plt.tight_layout()
+    plt.show()
