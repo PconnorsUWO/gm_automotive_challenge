@@ -1,11 +1,13 @@
 import helpers as h
 import yolo_model as ym
 import numpy as np
+import torch
 
 if __name__ == "__main__":
     # Load the YOLO model
     model = ym.YOLOModel("yolo11n.pt")
-
+    # Get raw model output without NMS or other postprocessing.
+    
     # Load a thermal image and apply the high-pass filter
     file_path = "test_images_16_bit/image_2.tiff"
     image = h.thermal_image_to_array(file_path)
@@ -16,11 +18,11 @@ if __name__ == "__main__":
     elif image.shape[-1] == 1:
         image = np.repeat(image, 3, axis=-1)
 
-    # Ensure the image is contiguous in memory
 
-    # Ensure image is of type uint8
+
     image = image.astype('uint8')
 
-    # Now run prediction
-    predictions = model.predict(image)
-    predictions[0].show()
+    raw_output = model.predict(image)  # No NMS
+
+    
+    print(raw_output)
