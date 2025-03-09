@@ -221,21 +221,17 @@ def band_pass_filter_fft(image, low_cutoff, high_cutoff):
     filtered = np.fft.ifft2(F_ishift)
     return np.abs(filtered)
 
+def yolo_to_bbox(yolo_bbox, image_width=512, image_height=640):
+    # yolo_bbox is [x_center, y_center, width, height] with values between 0 and 1
+    x_center, y_center, w, h = yolo_bbox
+    x1 = (x_center - w / 2) * image_width
+    y1 = (y_center - h / 2) * image_height
+    x2 = (x_center + w / 2) * image_width
+    y2 = (y_center + h / 2) * image_height
+    return x1, y1, x2, y2
+
 # Example usage:
 if __name__ == "__main__":
     file_path = "test_images_16_bit/image_2.tiff"
     image = thermal_image_to_array(file_path)
-    if image is None:
-        raise ValueError("Image not found or path is incorrect.")
-
-    # Define a new range of cutoff values for the high pass filter
-
-    # Apply high pass filtering for each cutoff value
     display_thermal_data(image)
-    filtered_image = high_pass_filter_fft(image, 6)
-    plt.figure(figsize=(8, 6))
-    plt.imshow(filtered_image, cmap='gray')
-    
-
-    plt.tight_layout()
-    plt.show()

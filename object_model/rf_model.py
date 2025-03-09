@@ -50,7 +50,7 @@ class RFModelWrapper:
         # Train the model on initialization
         self.model.fit(X, y)
     
-    def predict(self, x1, y1, x2, y2) -> (int, float):
+    def predict(self, x1, y1, x2, y2) -> list[int, float]:
         """
         Predict the class label and confidence score for the given input features.
 
@@ -69,6 +69,9 @@ class RFModelWrapper:
         sample = pd.DataFrame([[x1, y1, x2, y2]], columns=["x1", "y1", "x2", "y2"])
         prediction = self.model.predict(sample)[0]
         probabilities = self.model.predict_proba(sample)[0]
-        confidence = max(probabilities) 
-        return prediction, probabilities
+        confidence = round(max(probabilities), 2)  # Round confidence to 1 decimal place
+        return prediction, confidence
 
+if __name__ == "__main__":
+    rf = RFModelWrapper("labeled_data.txt")
+    print(rf.predict(85, 210, 160, 266))

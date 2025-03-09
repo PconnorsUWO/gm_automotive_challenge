@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     image = image.astype('uint8')
 
-    raw_output = model.predict(image)  # No NMS
+    raw_output = model.predict(image)
 
     
     print(raw_output)
